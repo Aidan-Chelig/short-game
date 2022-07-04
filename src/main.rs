@@ -1,4 +1,6 @@
+mod player;
 use bevy::prelude::*;
+use player::*;
 
 use std::f32::consts::PI;
 
@@ -13,7 +15,12 @@ struct Rotatable {
 fn main() {
     App::new()
         .add_plugins(DefaultPlugins)
+        .add_plugin(PlayerPlugin)
         .add_startup_system(setup)
+        .insert_resource(MovementSettings {
+            sensitivity: 0.00015, // default: 0.00012
+            speed: 9.0,          // default: 12.0
+        })
         .add_system(rotate_cube)
         .run();
 }
@@ -26,22 +33,16 @@ fn setup(
     // Spawn a cube to rotate.
     commands
         .spawn_bundle(PbrBundle {
-            mesh: meshes.add(Mesh::from(shape::Cube { size: 1.0 })),
+            mesh: meshes.add(Mesh::from(shape::Cube { size: 10.0 })),
             material: materials.add(Color::WHITE.into()),
             transform: Transform::from_translation(Vec3::ZERO),
             ..Default::default()
         })
         .insert(Rotatable { speed: 0.3 });
 
-    // Spawn a camera looking at the entities to show what's happening in this example.
-    commands.spawn_bundle(PerspectiveCameraBundle {
-        transform: Transform::from_xyz(0.0, 10.0, 20.0).looking_at(Vec3::ZERO, Vec3::Y),
-        ..Default::default()
-    });
-
     // Add a light source for better 3d visibility.
     commands.spawn_bundle(PointLightBundle {
-        transform: Transform::from_translation(Vec3::ONE * 3.0),
+        transform: Transform::from_translation(Vec3::ONE * 11.0),
         ..Default::default()
     });
 }
