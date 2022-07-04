@@ -19,7 +19,8 @@ fn main() {
         .add_startup_system(setup)
         .insert_resource(MovementSettings {
             sensitivity: 0.00015, // default: 0.00012
-            speed: 9.0,          // default: 12.0
+            speed: 9.0,
+            fov: 110.// default: 12.0
         })
         .add_system(rotate_cube)
         .run();
