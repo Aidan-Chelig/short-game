@@ -1,6 +1,7 @@
 mod player;
 use bevy::prelude::*;
 use player::*;
+use bevy_rapier3d::prelude::*;
 
 use std::f32::consts::PI;
 
@@ -16,13 +17,11 @@ fn main() {
     App::new()
         .add_plugins(DefaultPlugins)
         .add_plugin(PlayerPlugin)
+        .add_plugin(RapierPhysicsPlugin::<NoUserData>::default())
+        //.add_plugin(RapierDebugRenderPlugin::default())
         .add_startup_system(setup)
-        .insert_resource(MovementSettings {
-            sensitivity: 0.00015, // default: 0.00012
-            speed: 9.0,
-            fov: 110.// default: 12.0
-        })
-        .add_system(rotate_cube)
+        .insert_resource(MovementSettings::default())
+        //.add_system(rotate_cube)
         .run();
 }
 

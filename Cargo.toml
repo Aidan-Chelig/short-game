@@ -5,7 +5,11 @@ authors = ["aidan chelig <aidan.chelig@gmail.com>"]
 edition = "2018"
 resolver="2"
 
+[target.wasm32-unknown-unknown]
+runner = "wasm-server-runner"
+
 # See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
 
 [dependencies]
-bevy = { version = "0.8.0", features = ["dynamic"] }
+bevy = { version = "0.8.0"}
+bevy_rapier3d = {version = "0.16.1", features = ["simd-stable"]}

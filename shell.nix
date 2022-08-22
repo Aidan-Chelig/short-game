@@ -19,12 +19,14 @@ pkgs.mkShell {
       combine (
         with default; [
           cargo
-          clippy-preview
-          latest.rust-src
+          clippy
+          stable.rust-src
           rust-analyzer
+          rls
           rust-std
           rustc
-          rustfmt-preview
+          rustfmt
+          targets.wasm32-unknown-unknown.latest.rust-std
         ]
       )
     )

@@ -1,8 +1,18 @@
+use std::arch::x86_64::_pext_u32;
+
+use bevy::ecs::system::Command;
 use bevy::time::FixedTimestep;
 use bevy::input::mouse::MouseButton;
 use bevy::input::mouse::MouseButtonInput;
 use bevy::input::mouse::MouseMotion;
 use bevy::prelude::*;
+use bevy_rapier3d::prelude::Collider;
+use bevy_rapier3d::prelude::Damping;
+use bevy_rapier3d::prelude::ExternalForce;
+use bevy_rapier3d::prelude::ExternalImpulse;
+use bevy_rapier3d::prelude::LockedAxes;
+use bevy_rapier3d::prelude::RigidBody;
+use bevy_rapier3d::prelude::Velocity;
 
 /// Keeps track of mouse motion events, pitch, and yaw
 #[derive(Default)]
@@ -14,7 +24,9 @@ struct InputState {
 /// Mouse sensitivity and movement speed
 pub struct MovementSettings {
     pub sensitivity: f32,
-    pub speed: f32,
+    pub max_speed: f32,
+    pub acceleration: f32,
+    pub max_acceleration_force: f32,
     pub fov: f32,
 }
 
@@ -22,7 +34,9 @@ impl Default for MovementSettings {
     fn default() -> Self {
         Self {
             sensitivity: 0.00012,
-            speed: 12.,
+            max_speed: 8.,
+            acceleration: 200.,
+            max_acceleration_force: 150.,
             fov: 90.,
         }
     }
@@ -30,7 +44,11 @@ impl Default for MovementSettings {
 
 /// Used in queries when you want flycams and not other cameras
 #[derive(Component)]
-pub struct FlyCam;
+pub struct FPSCam;
+
+
+#[derive(Component)]
+pub struct FPSBody;
 
 /// Grabs/ungrabs mouse cursor
 fn toggle_grab_cursor(window: &mut Window) {
@@ -44,17 +62,47 @@ fn initial_grab_cursor(mut windows: ResMut<Windows>) {
 }
 
 /// Spawns the `Camera3dBundle` to be controlled
-fn setup_player(mut commands: Commands, settings: Res<MovementSettings>) {
-    commands
+fn setup_player(mut commands: Commands, settings: Res<MovementSettings>
+    ,mut meshes: ResMut<Assets<Mesh>>, mut materials: ResMut<Assets<StandardMaterial>>
+) {
+    let camera = commands
         .spawn_bundle(Camera3dBundle {
-            transform: Transform::from_xyz(-2.0, 5.0, 5.0).looking_at(Vec3::ZERO, Vec3::Y),
+            transform: Transform::from_xyz(0., 0.95, 0.).looking_at(Vec3::ZERO, Vec3::Y),
             projection: PerspectiveProjection {
                 fov: (settings.fov / 360.0) * (std::f32::consts::PI * 2.0),
                 ..Default::default()
             }.into(),
             ..Default::default()
         })
-        .insert(FlyCam);
+        .insert(FPSCam)
+        .id();
+
+        commands
+        .spawn_bundle(TransformBundle::from(Transform::from_xyz(-2.0, 10.0, 5.0)))
+        .insert(RigidBody::Dynamic)
+        .insert(LockedAxes::ROTATION_LOCKED)
+        .insert(Collider::capsule_y(1., 0.5))
+        .insert(Velocity::default())
+        .insert(Damping {
+            linear_damping: 2.0,
+            ..Default::default()
+        })
+        .insert(ExternalImpulse::default())
+        .insert(ExternalForce::default())
+        .insert(FPSBody)
+        .add_child(camera);
+
+    let ground_size = 200.1;
+    let ground_height = 0.1;
+
+    commands
+        .spawn_bundle(PbrBundle {
+            mesh: meshes.add(Mesh::from(shape::Plane { size: 200.1 })),
+            material: materials.add(Color::WHITE.into()),
+            transform: Transform::from_translation(Vec3::ZERO),
+            ..Default::default()
+        })
+        .insert(Collider::cuboid(ground_size, ground_height, ground_size));
 }
 
 /// Handles keyboard input and movement
@@ -63,10 +111,10 @@ fn player_move(
     time: Res<Time>,
     windows: Res<Windows>,
     settings: Res<MovementSettings>,
-    mut query: Query<(&FlyCam, &mut Transform)>,
+    mut query: Query<( &Transform, &mut ExternalForce, &Velocity), With<FPSBody>>,
 ) {
     let window = windows.get_primary().unwrap();
-    for (_camera, mut transform) in query.iter_mut() {
+    for (transform, mut ext_impulse, body_velocity) in query.iter_mut() {
         let mut velocity = Vec3::ZERO;
         let local_z = transform.local_z();
         let forward = -Vec3::new(local_z.x, 0., local_z.z);
@@ -87,9 +135,24 @@ fn player_move(
         }
 
         velocity = velocity.normalize();
+        if (velocity == Vec3::ZERO || velocity.is_nan()) {
+            ext_impulse.force = Vec3::ZERO;
+            //TODO: ADD CUSTOM DAMPENING
+
+            return;
+        }
+        velocity *= settings.max_speed;
+        velocity.max((settings.acceleration * time.delta().as_secs_f32()) * Vec3::ONE);
+
+        let needed_accel: Vec3 = (velocity - body_velocity.linvel) / time.delta().as_secs_f32();
+
+        let newforce = needed_accel.clamp(needed_accel, settings.max_acceleration_force * Vec3::ONE);
+
+
+
 
         if !velocity.is_nan() {
-            transform.translation += velocity * time.delta_seconds() * settings.speed
+            ext_impulse.force = Vec3::new(newforce.x, 0., newforce.z);
         }
     }
 }
@@ -100,10 +163,13 @@ fn player_look(
     windows: Res<Windows>,
     mut state: ResMut<InputState>,
     mut mouse_move: EventReader<MouseMotion>,
-    mut query: Query<(&FlyCam, &mut Transform)>,
+    mut set: ParamSet<(
+        Query<&mut Transform, With<FPSCam>>,
+        Query<&mut Transform, With<FPSBody>>
+    )>
 ) {
     let window = windows.get_primary().unwrap();
-    for (_camera, mut transform) in query.iter_mut() {
+
         for ev in mouse_move.iter() {
             if window.cursor_locked() {
                 // Using smallest of height or width ensures equal vertical and horizontal sensitivity
@@ -115,12 +181,28 @@ fn player_look(
             state.pitch = state.pitch.clamp(-1.54, 1.54);
 
             // Order is important to prevent unintended roll
-            let new_transform = Quat::from_axis_angle(Vec3::Y, state.yaw)
+            let new_transform = Quat::from_axis_angle(Vec3::Y, 0.)
                 * Quat::from_axis_angle(Vec3::X, state.pitch);
-            if transform.rotation != new_transform {
-                transform.rotation = new_transform;
+
+            let new_body_transform = Quat::from_axis_angle(Vec3::Y, state.yaw);
+
+
+            for mut transform in set.p0().iter_mut() {
+                if (transform.rotation != new_transform) {
+                    transform.rotation = new_transform;
+                }
             }
+            for mut transform in set.p1().iter_mut() {
+                if (transform.rotation != new_body_transform){
+                transform.rotation = new_body_transform;
+            }
+            }
+
         }
+
+
+    for mut bodytransform in set.p0().iter_mut() {
+
     }
 }
 
@@ -155,5 +237,6 @@ impl Plugin for PlayerPlugin {
             .add_system(player_move)
             .add_system(player_look)
             .add_system(cursor_grab);
+
     }
 }
