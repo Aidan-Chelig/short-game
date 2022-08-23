@@ -1,4 +1,6 @@
-use std::arch::x86_64::_pext_u32;
+use bevy_inspector_egui::Inspectable;
+use bevy_inspector_egui::InspectorPlugin;
+use inline_tweak::*;
 
 use bevy::ecs::system::Command;
 use bevy::time::FixedTimestep;
@@ -6,22 +8,19 @@ use bevy::input::mouse::MouseButton;
 use bevy::input::mouse::MouseButtonInput;
 use bevy::input::mouse::MouseMotion;
 use bevy::prelude::*;
-use bevy_rapier3d::prelude::Collider;
-use bevy_rapier3d::prelude::Damping;
-use bevy_rapier3d::prelude::ExternalForce;
-use bevy_rapier3d::prelude::ExternalImpulse;
-use bevy_rapier3d::prelude::LockedAxes;
-use bevy_rapier3d::prelude::RigidBody;
-use bevy_rapier3d::prelude::Velocity;
+use bevy_rapier3d::prelude::*;
+
 
 /// Keeps track of mouse motion events, pitch, and yaw
-#[derive(Default)]
+#[derive(Default, Inspectable)]
 struct InputState {
     pitch: f32,
     yaw: f32,
 }
 
+
 /// Mouse sensitivity and movement speed
+#[derive(Inspectable)]
 pub struct MovementSettings {
     pub sensitivity: f32,
     pub max_speed: f32,
@@ -30,13 +29,19 @@ pub struct MovementSettings {
     pub fov: f32,
 }
 
+#[derive(Default)]
+#[derive(Inspectable)]
+struct PlayerState {
+    grounded: bool
+}
+
 impl Default for MovementSettings {
     fn default() -> Self {
         Self {
             sensitivity: 0.00012,
-            max_speed: 8.,
-            acceleration: 200.,
-            max_acceleration_force: 150.,
+            max_speed: 10.,
+            acceleration: 300.,
+            max_acceleration_force: 200.,
             fov: 90.,
         }
     }
@@ -83,9 +88,9 @@ fn setup_player(mut commands: Commands, settings: Res<MovementSettings>
         .insert(LockedAxes::ROTATION_LOCKED)
         .insert(Collider::capsule_y(1., 0.5))
         .insert(Velocity::default())
-        .insert(Damping {
-            linear_damping: 2.0,
-            ..Default::default()
+        .insert(Friction {
+            coefficient: 5.,
+            combine_rule: bevy_rapier3d::prelude::CoefficientCombineRule::Average
         })
         .insert(ExternalImpulse::default())
         .insert(ExternalForce::default())
@@ -105,17 +110,48 @@ fn setup_player(mut commands: Commands, settings: Res<MovementSettings>
         .insert(Collider::cuboid(ground_size, ground_height, ground_size));
 }
 
+fn detect_ground(
+    rapier_context: Res<RapierContext>,
+    mut state: ResMut<PlayerState>,
+    query: Query<(Entity, &Transform), With<FPSBody>>
+) {
+
+    for (entity, transform) in query.iter() {
+        let ray_pos = transform.translation;
+        let ray_dir = Vec3::new(0.0, tweak!(-1.), 0.0);
+        let max_toi = tweak!(1.5);
+        let solid = false;
+        let groups = InteractionGroups::all();
+        let filter = QueryFilter::default().exclude_rigid_body(entity);
+        let mut grounded = false;
+        if let Some((entity, toi)) = rapier_context.cast_ray(
+        ray_pos, ray_dir, max_toi, solid, filter
+    ) {
+        // The first collider hit has the entity `entity` and it hit after
+        // the ray travelled a distance equal to `ray_dir * toi`.
+        grounded = true;
+        let hit_point = ray_pos + ray_dir * toi;
+    }
+        state.grounded = grounded;
+
+
+    }
+
+}
+
 /// Handles keyboard input and movement
 fn player_move(
     keys: Res<Input<KeyCode>>,
     time: Res<Time>,
     windows: Res<Windows>,
     settings: Res<MovementSettings>,
+    state: Res<PlayerState>,
     mut query: Query<( &Transform, &mut ExternalForce, &Velocity), With<FPSBody>>,
 ) {
     let window = windows.get_primary().unwrap();
     for (transform, mut ext_impulse, body_velocity) in query.iter_mut() {
         let mut velocity = Vec3::ZERO;
+        let mut y_velocity = 0.;
         let local_z = transform.local_z();
         let forward = -Vec3::new(local_z.x, 0., local_z.z);
         let right = Vec3::new(local_z.z, 0., -local_z.x);
@@ -127,17 +163,18 @@ fn player_move(
                     KeyCode::S => velocity -= forward,
                     KeyCode::A => velocity -= right,
                     KeyCode::D => velocity += right,
-                    KeyCode::Space => velocity += Vec3::Y,
-                    KeyCode::LShift => velocity -= Vec3::Y,
+                    KeyCode::Space => if state.grounded {y_velocity += tweak!(500.0)},
                     _ => (),
                 }
             }
         }
 
+
+
+
         velocity = velocity.normalize();
-        if (velocity == Vec3::ZERO || velocity.is_nan()) {
+        if (velocity == Vec3::ZERO || velocity.is_nan()) && y_velocity == 0. {
             ext_impulse.force = Vec3::ZERO;
-            //TODO: ADD CUSTOM DAMPENING
 
             return;
         }
@@ -148,11 +185,18 @@ fn player_move(
 
         let newforce = needed_accel.clamp(needed_accel, settings.max_acceleration_force * Vec3::ONE);
 
-
-
+        let mut composed_velocity = Vec3::ZERO;
 
         if !velocity.is_nan() {
-            ext_impulse.force = Vec3::new(newforce.x, 0., newforce.z);
+            composed_velocity = Vec3::new(newforce.x, 0., newforce.z);
+        }
+
+        if y_velocity != 0. {
+            composed_velocity.y = y_velocity;
+        }
+
+        if composed_velocity != Vec3::ZERO {
+            ext_impulse.force = composed_velocity;
         }
     }
 }
@@ -231,12 +275,17 @@ impl Plugin for PlayerPlugin {
     fn build(&self, app: &mut App) {
         app.init_resource::<InputState>()
             .init_resource::<MovementSettings>()
+            .init_resource::<PlayerState>()
             .add_startup_system(setup_player)
             .add_startup_system(initial_grab_cursor)
             .add_system_set(SystemSet::new().with_run_criteria(FixedTimestep::step(0.017)))
+            .add_system(detect_ground)
             .add_system(player_move)
             .add_system(player_look)
-            .add_system(cursor_grab);
+            .add_system(cursor_grab)
+            .add_plugin(InspectorPlugin::<PlayerState>::new())
+            .add_plugin(InspectorPlugin::<MovementSettings>::new())
+            .add_plugin(InspectorPlugin::<InputState>::new());
 
     }
 }

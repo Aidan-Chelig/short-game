@@ -11,5 +11,7 @@ runner = "wasm-server-runner"
 # See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
 
 [dependencies]
-bevy = { version = "0.8.0"}
+bevy = { version = "0.8.0", features=["jpeg"]}
 bevy_rapier3d = {version = "0.16.1", features = ["simd-stable"]}
+inline_tweak = "1.0.8"
+bevy-inspector-egui = "0.12.1"

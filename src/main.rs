@@ -1,7 +1,10 @@
 mod player;
 use bevy::prelude::*;
+use inline_tweak::*;
 use player::*;
 use bevy_rapier3d::prelude::*;
+use bevy_inspector_egui::{InspectorPlugin, Inspectable};
+use bevy_inspector_egui::WorldInspectorPlugin;
 
 use std::f32::consts::PI;
 
@@ -19,9 +22,9 @@ fn main() {
         .add_plugin(PlayerPlugin)
         .add_plugin(RapierPhysicsPlugin::<NoUserData>::default())
         //.add_plugin(RapierDebugRenderPlugin::default())
+        .add_plugin(WorldInspectorPlugin::new())
         .add_startup_system(setup)
         .insert_resource(MovementSettings::default())
-        //.add_system(rotate_cube)
         .run();
 }
 
@@ -29,30 +32,29 @@ fn setup(
     mut commands: Commands,
     mut meshes: ResMut<Assets<Mesh>>,
     mut materials: ResMut<Assets<StandardMaterial>>,
+    asset_server: Res<AssetServer>,
 ) {
-    // Spawn a cube to rotate.
-    commands
-        .spawn_bundle(PbrBundle {
-            mesh: meshes.add(Mesh::from(shape::Cube { size: 10.0 })),
-            material: materials.add(Color::WHITE.into()),
-            transform: Transform::from_translation(Vec3::ZERO),
-            ..Default::default()
-        })
-        .insert(Rotatable { speed: 0.3 });
 
+    let material_handle = materials.add(StandardMaterial {
+        base_color: Color::rgb(0.8, 0.7, 0.6),
+        ..default()
+    });
+    let cube_handle = asset_server.load("food_apple_01_4k.glb#Scene0");
+
+        commands.spawn_bundle(SceneBundle {
+            scene: cube_handle,
+            transform: Transform::from_xyz(0.,10., 0. ).with_scale(Vec3::ONE),
+            ..Default::default()
+
+        })    // Spawn a cube to rotate.
+        .insert(RigidBody::Dynamic)
+        .insert(Collider::ball(0.5));
+    //
     // Add a light source for better 3d visibility.
     commands.spawn_bundle(PointLightBundle {
-        transform: Transform::from_translation(Vec3::ONE * 11.0),
+        transform: Transform::from_translation(Vec3::new(0., 10., 0.)),
         ..Default::default()
     });
 }
 
 // This system will rotate any entity in the scene with an assigned Rotatable around its z-axis.
-fn rotate_cube(mut cubes: Query<(&mut Transform, &Rotatable)>, timer: Res<Time>) {
-    for (mut transform, cube) in cubes.iter_mut() {
-        // The speed is taken as a percentage of a full 360 degree turn.
-        // The timers delta_seconds is used to smooth out the movement.
-        let rotation_change = Quat::from_rotation_y(FULL_TURN * cube.speed * timer.delta_seconds());
-        transform.rotate(rotation_change);
-    }
-}
