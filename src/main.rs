@@ -21,7 +21,7 @@ fn main() {
         .add_plugins(DefaultPlugins)
         .add_plugin(PlayerPlugin)
         .add_plugin(RapierPhysicsPlugin::<NoUserData>::default())
-        //.add_plugin(RapierDebugRenderPlugin::default())
+        .add_plugin(RapierDebugRenderPlugin::default())
         .add_plugin(WorldInspectorPlugin::new())
         .add_startup_system(setup)
         .insert_resource(MovementSettings::default())
@@ -48,7 +48,10 @@ fn setup(
 
         })    // Spawn a cube to rotate.
         .insert(RigidBody::Dynamic)
-        .insert(Collider::ball(0.5));
+        .insert(Collider::ball(0.5))
+        .insert(Velocity::default())
+        .insert(ExternalForce::default())
+        .insert(Grabbable::default());
     //
     // Add a light source for better 3d visibility.
     commands.spawn_bundle(PointLightBundle {
