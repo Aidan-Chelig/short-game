@@ -73,6 +73,7 @@ fn initial_grab_cursor(mut windows: ResMut<Windows>) {
 fn setup_player(
     mut commands: Commands,
     settings: Res<MovementSettings>,
+    assets: Res<AssetServer>,
     mut meshes: ResMut<Assets<Mesh>>,
     mut materials: ResMut<Assets<StandardMaterial>>,
 ) {
@@ -97,24 +98,30 @@ fn setup_player(
         .insert(Velocity::default())
         .insert(Friction {
             coefficient: 5.,
-            combine_rule: bevy_rapier3d::prelude::CoefficientCombineRule::Average,
+            combine_rule: CoefficientCombineRule::Average,
         })
         .insert(ExternalImpulse::default())
         .insert(ExternalForce::default())
+        .insert(ColliderMassProperties::Density(2.0))
         .insert(FPSBody)
         .add_child(camera);
 
-    let ground_size = 200.1;
-    let ground_height = 0.1;
+    let ground_size = 100.;
+    let ground_height = 0.2;
+
+ let texture_handle = assets.load("tex.jpg");
 
     commands
         .spawn_bundle(PbrBundle {
-            mesh: meshes.add(Mesh::from(shape::Plane { size: 200.1 })),
-            material: materials.add(Color::WHITE.into()),
+            mesh: meshes.add(Mesh::from(shape::Plane { size: ground_size })),
+            material: materials.add(StandardMaterial {
+                base_color_texture: Some(texture_handle.clone()),
+                ..Default::default()
+            }),
             transform: Transform::from_translation(Vec3::ZERO),
             ..Default::default()
         })
-        .insert(Collider::cuboid(ground_size, ground_height, ground_size));
+        .insert(Collider::cuboid(ground_size/2., ground_height, ground_size/2.));
 }
 
 fn detect_ground(
@@ -134,11 +141,9 @@ fn detect_ground(
         if let Some((entity, toi)) =
             rapier_context.cast_ray(ray_pos, ray_dir, max_toi, solid, filter)
         {
-
             // The first collider hit has the entity `entity` and it hit after
             // the ray travelled a distance equal to `ray_dir * toi`.
             grounded = true;
-            let hit_point = ray_pos + ray_dir * toi;
         }
         state.grounded = grounded;
     }
@@ -149,7 +154,7 @@ fn player_grab(
     mut state: ResMut<PlayerState>,
     mut commands: Commands,
     camera: Query<&GlobalTransform, With<FPSCam>>,
-    mut grabbables: Query<(Entity, &mut Transform, &mut Velocity, &ExternalForce, &mut Grabbable), With<Grabbable>>,
+    mut grabbables: Query<(Entity, &mut Transform, &mut Velocity, &mut ExternalForce, &mut Grabbable, &mut GravityScale), With<Grabbable>>,
     rapier_context: Res<RapierContext>,
 ) {
 
@@ -157,65 +162,85 @@ fn player_grab(
 
     if !keys.just_pressed(KeyCode::E){
         if let Some(grabbedEnt) = state.grabbing {
-            if let Ok((_, mut trans, mut vel, _, _)) = grabbables.get_mut(grabbedEnt) {
+            if let Ok((_, mut trans, mut vel, mut extforce, _, mut gscale)) = grabbables.get_mut(grabbedEnt) {
 
                 for _global_transform in camera.iter() {
                     *vel = Velocity::zero();
                     let camtrans = _global_transform.compute_transform();
-                    trans.translation = camtrans.translation + (camtrans.forward() * 1.5);
+                    let grablocation = camtrans.translation + (camtrans.forward() * 1.5);
+                    let direction =  (grablocation - trans.translation).normalize();
+                    let distance = grablocation.distance(trans.translation);
+
+
+
+                    if (direction != Vec3::ZERO && distance > 0.005) {
+                    //extforce.force = direction * (distance.sqrt().powf(10.) + distance * 1000.);
+                    let press = ((((distance + 0.03) * 3.).log10() + 1.) * distance.sqrt());
+                        println!("{} {}", press, distance);
+                    extforce.force = direction * ((press.abs() + press) / 2.) * 1500.;
+                        //println!("{:?}", extforce.force);
+                    } else {
+                        extforce.force = Vec3::ZERO;
+                    }
+                    //trans.translation = camtrans.translation + (camtrans.forward() * 1.5);
                 }
             }
         }
         return
     } else {
 
-    let mut mapthing: HashMap<Entity, bool> = HashMap::new();
+        let mut mapthing: HashMap<Entity, bool> = HashMap::new();
 
-    for (ent, _, _, _, grabby) in grabbables.iter() {
-        mapthing.insert(ent, grabby.grabbed);
-    }
-
-    if state.grabbing.is_none() {
-    let pred = &|v| {
-       if let Some(v) = mapthing.get(&v) {
-            return !v.to_owned()
+        for (ent, _, _, _, grabby, _) in grabbables.iter() {
+            mapthing.insert(ent, grabby.grabbed);
         }
-       false
-    };
-    let filter = QueryFilter::new().predicate(pred);
 
-    for _global_transform in camera.iter() {
-        let transform = _global_transform.compute_transform();
-        let ray_pos = transform.translation;
-        let ray_dir = transform.forward();
-        let max_toi = 3.;
-        let solid = false;
-
-
-        if let Some((entity, toi)) =
-            rapier_context.cast_ray(ray_pos, ray_dir, max_toi, solid, filter)
-        {
-            if let Ok((ent, transform, velocity, force, mut grabb)) = grabbables.get_mut(entity) {
-                if(grabb.grabbed){
-                    return;
+        if state.grabbing.is_none() {
+            let pred = &|v| {
+                if let Some(v) = mapthing.get(&v) {
+                    return !v.to_owned()
                 }
-                state.grabbing = Some(ent);
-                grabb.grabbed = true;
-                println!("GRABBED");
+                false
+            };
+            let filter = QueryFilter::new().predicate(pred);
+
+            for _global_transform in camera.iter() {
+                let transform = _global_transform.compute_transform();
+                let ray_pos = transform.translation;
+                let ray_dir = transform.forward();
+                let max_toi = 3.;
+                let solid = false;
+
+
+                if let Some((entity, toi)) =
+                    rapier_context.cast_ray(ray_pos, ray_dir, max_toi, solid, filter)
+                {
+                    if let Ok((ent, transform, velocity, mut force, mut grabb, mut grav)) = grabbables.get_mut(entity) {
+                        if(grabb.grabbed){
+                            return;
+                        }
+                        state.grabbing = Some(ent);
+                        grabb.grabbed = true;
+                        grav.0 = 0.;
+
+                        println!("GRABBED");
+                    }
+
+                    //let hit_point = ray_pos + ray_dir * toi;
+                }
             }
 
-            //let hit_point = ray_pos + ray_dir * toi;
-        }
-    }
+        } else {
+            if let Ok((ent, _, _, mut force,  mut grabby, mut grav)) = grabbables.get_mut(state.grabbing.unwrap()) {
+                grabby.grabbed = false;
+                state.grabbing = Option::None;
 
-    } else {
-        if let Ok((ent, _, _, _,  mut grabby)) = grabbables.get_mut(state.grabbing.unwrap()) {
-            grabby.grabbed = false;
-            state.grabbing = Option::None;
-            println!("letgo")
+                force.force = Vec3::ZERO;
+                println!("letgo");
+                grav.0 = GravityScale::default().0;
 
+            }
         }
-    }
     }
 
 }
@@ -246,15 +271,16 @@ fn player_move(
                         KeyCode::S => velocity -= forward,
                         KeyCode::A => velocity -= right,
                         KeyCode::D => velocity += right,
-                        KeyCode::Space => {
-                            if state.grounded {
-                                y_velocity += tweak!(500.0)
-                            }
-                        }
-                        _ => (),
+                       _ => (),
                     }
                 }
             }
+                        if(keys.just_pressed(KeyCode::Space)) {
+                            if state.grounded {
+                                y_velocity += tweak!(1000.0)
+                            }
+                        }
+
 
             velocity = velocity.normalize();
             if (velocity == Vec3::ZERO || velocity.is_nan()) && y_velocity == 0. {
@@ -279,6 +305,8 @@ fn player_move(
             if y_velocity != 0. {
                 composed_velocity.y = y_velocity;
             }
+
+            println!("{:?}", velocity);
 
             if composed_velocity != Vec3::ZERO {
                 ext_impulse.force = composed_velocity;

@@ -49,6 +49,7 @@ pkgs.mkShell {
     vulkan-headers
     vulkan-loader
     vulkan-validation-layers
+    libjack2
   ];
 
 }
