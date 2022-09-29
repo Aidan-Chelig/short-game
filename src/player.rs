@@ -31,7 +31,7 @@ pub struct MovementSettings {
 #[derive(Default, Inspectable)]
 struct PlayerState {
     grounded: bool,
-    grabbing: Option<Entity>
+    grabbing: Option<Entity>,
 }
 
 impl Default for MovementSettings {
@@ -55,7 +55,7 @@ pub struct FPSBody;
 
 #[derive(Component, Default)]
 pub struct Grabbable {
-    grabbed: bool
+    grabbed: bool,
 }
 
 /// Grabs/ungrabs mouse cursor
@@ -109,7 +109,7 @@ fn setup_player(
     let ground_size = 100.;
     let ground_height = 0.2;
 
- let texture_handle = assets.load("tex.jpg");
+    let texture_handle = assets.load("tex.jpg");
 
     commands
         .spawn_bundle(PbrBundle {
@@ -121,7 +121,11 @@ fn setup_player(
             transform: Transform::from_translation(Vec3::ZERO),
             ..Default::default()
         })
-        .insert(Collider::cuboid(ground_size/2., ground_height, ground_size/2.));
+        .insert(Collider::cuboid(
+            ground_size / 2.,
+            ground_height,
+            ground_size / 2.,
+        ));
 }
 
 fn detect_ground(
@@ -149,100 +153,137 @@ fn detect_ground(
     }
 }
 
+fn rotate_with_mouse(
+    state: Res<PlayerState>,
+    mut mouse_move: EventReader<MouseMotion>,
+    mut grabbables: Query<&mut Transform, With<Grabbable>>,
+) {
+    if let Some(ent) = state.grabbing {
+        if let Ok(mut trans) = grabbables.get_mut(ent) {
+            for ev in mouse_move.iter() {
+                let eu = trans.rotation.to_euler(EulerRot::XYZ);
+                //TODO: factor in player rotation
+                trans.rotation =
+                    Quat::from_euler(EulerRot::XYZ, 0., ev.delta.x / 100., -ev.delta.y / 100.)
+                        * trans.rotation;
+            }
+        }
+    }
+}
+
+fn grabbing(
+    state: Res<PlayerState>,
+    camera: Query<&GlobalTransform, With<FPSCam>>,
+    mut grabbables: Query<
+        (
+            Entity,
+            &mut Transform,
+            &mut Velocity,
+            &mut ExternalForce,
+            &mut Grabbable,
+            &mut GravityScale,
+        ),
+        With<Grabbable>,
+    >,
+) {
+    if let Some(grabbedEnt) = state.grabbing {
+        if let Ok((_, mut trans, mut vel, mut extforce, _, mut gscale)) =
+            grabbables.get_mut(grabbedEnt)
+        {
+            for _global_transform in camera.iter() {
+                *vel = Velocity::zero();
+                let camtrans = _global_transform.compute_transform();
+                let grablocation = camtrans.translation + (camtrans.forward() * 3.0);
+                let direction = (grablocation - trans.translation).normalize();
+                let distance = grablocation.distance(trans.translation);
+
+                if (direction != Vec3::ZERO && distance > 0.005) {
+                    //extforce.force = direction * (distance.sqrt().powf(10.) + distance * 1000.);
+                    let press = ((((distance + 0.03) * 3.).log10() + 1.) * distance.sqrt());
+                    extforce.force = direction * ((press.abs() + press) / 2.) * 1500.;
+                    //println!("{:?}", extforce.force);
+                } else {
+                    extforce.force = Vec3::ZERO;
+                }
+                //trans.translation = camtrans.translation + (camtrans.forward() * 1.5);
+            }
+        }
+    }
+    return;
+}
+
 fn player_grab(
     keys: Res<Input<KeyCode>>,
     mut state: ResMut<PlayerState>,
     mut commands: Commands,
     camera: Query<&GlobalTransform, With<FPSCam>>,
-    mut grabbables: Query<(Entity, &mut Transform, &mut Velocity, &mut ExternalForce, &mut Grabbable, &mut GravityScale), With<Grabbable>>,
+    mut grabbables: Query<
+        (
+            Entity,
+            &mut Transform,
+            &mut Velocity,
+            &mut ExternalForce,
+            &mut Grabbable,
+            &mut GravityScale,
+        ),
+        With<Grabbable>,
+    >,
     rapier_context: Res<RapierContext>,
 ) {
-
-
-
-    if !keys.just_pressed(KeyCode::E){
-        if let Some(grabbedEnt) = state.grabbing {
-            if let Ok((_, mut trans, mut vel, mut extforce, _, mut gscale)) = grabbables.get_mut(grabbedEnt) {
-
-                for _global_transform in camera.iter() {
-                    *vel = Velocity::zero();
-                    let camtrans = _global_transform.compute_transform();
-                    let grablocation = camtrans.translation + (camtrans.forward() * 1.5);
-                    let direction =  (grablocation - trans.translation).normalize();
-                    let distance = grablocation.distance(trans.translation);
-
-
-
-                    if (direction != Vec3::ZERO && distance > 0.005) {
-                    //extforce.force = direction * (distance.sqrt().powf(10.) + distance * 1000.);
-                    let press = ((((distance + 0.03) * 3.).log10() + 1.) * distance.sqrt());
-                        println!("{} {}", press, distance);
-                    extforce.force = direction * ((press.abs() + press) / 2.) * 1500.;
-                        //println!("{:?}", extforce.force);
-                    } else {
-                        extforce.force = Vec3::ZERO;
-                    }
-                    //trans.translation = camtrans.translation + (camtrans.forward() * 1.5);
-                }
-            }
-        }
-        return
-    } else {
-
-        let mut mapthing: HashMap<Entity, bool> = HashMap::new();
-
-        for (ent, _, _, _, grabby, _) in grabbables.iter() {
-            mapthing.insert(ent, grabby.grabbed);
-        }
-
-        if state.grabbing.is_none() {
-            let pred = &|v| {
-                if let Some(v) = mapthing.get(&v) {
-                    return !v.to_owned()
-                }
-                false
-            };
-            let filter = QueryFilter::new().predicate(pred);
-
-            for _global_transform in camera.iter() {
-                let transform = _global_transform.compute_transform();
-                let ray_pos = transform.translation;
-                let ray_dir = transform.forward();
-                let max_toi = 3.;
-                let solid = false;
-
-
-                if let Some((entity, toi)) =
-                    rapier_context.cast_ray(ray_pos, ray_dir, max_toi, solid, filter)
-                {
-                    if let Ok((ent, transform, velocity, mut force, mut grabb, mut grav)) = grabbables.get_mut(entity) {
-                        if(grabb.grabbed){
-                            return;
-                        }
-                        state.grabbing = Some(ent);
-                        grabb.grabbed = true;
-                        grav.0 = 0.;
-
-                        println!("GRABBED");
-                    }
-
-                    //let hit_point = ray_pos + ray_dir * toi;
-                }
-            }
-
-        } else {
-            if let Ok((ent, _, _, mut force,  mut grabby, mut grav)) = grabbables.get_mut(state.grabbing.unwrap()) {
-                grabby.grabbed = false;
-                state.grabbing = Option::None;
-
-                force.force = Vec3::ZERO;
-                println!("letgo");
-                grav.0 = GravityScale::default().0;
-
-            }
-        }
+    if !keys.just_pressed(KeyCode::E) {
+        return;
     }
 
+    let mut mapthing: HashMap<Entity, bool> = HashMap::new();
+
+    for (ent, _, _, _, grabby, _) in grabbables.iter() {
+        mapthing.insert(ent, grabby.grabbed);
+    }
+
+    if state.grabbing.is_none() {
+        let pred = &|v| {
+            if let Some(v) = mapthing.get(&v) {
+                return !v.to_owned();
+            }
+            false
+        };
+        let filter = QueryFilter::new().predicate(pred);
+
+        for _global_transform in camera.iter() {
+            let transform = _global_transform.compute_transform();
+            let ray_pos = transform.translation;
+            let ray_dir = transform.forward();
+            let max_toi = 3.;
+            let solid = false;
+
+            if let Some((entity, toi)) =
+                rapier_context.cast_ray(ray_pos, ray_dir, max_toi, solid, filter)
+            {
+                if let Ok((ent, transform, velocity, mut force, mut grabb, mut grav)) =
+                    grabbables.get_mut(entity)
+                {
+                    if (grabb.grabbed) {
+                        return;
+                    }
+                    state.grabbing = Some(ent);
+                    grabb.grabbed = true;
+                    grav.0 = 0.;
+                }
+
+                //let hit_point = ray_pos + ray_dir * toi;
+            }
+        }
+    } else {
+        if let Ok((ent, _, _, mut force, mut grabby, mut grav)) =
+            grabbables.get_mut(state.grabbing.unwrap())
+        {
+            grabby.grabbed = false;
+            state.grabbing = Option::None;
+
+            force.force = Vec3::ZERO;
+            grav.0 = GravityScale::default().0;
+        }
+    }
 }
 
 /// Handles keyboard input and movement
@@ -271,16 +312,15 @@ fn player_move(
                         KeyCode::S => velocity -= forward,
                         KeyCode::A => velocity -= right,
                         KeyCode::D => velocity += right,
-                       _ => (),
+                        _ => (),
                     }
                 }
             }
-                        if(keys.just_pressed(KeyCode::Space)) {
-                            if state.grounded {
-                                y_velocity += tweak!(1000.0)
-                            }
-                        }
-
+            if (keys.just_pressed(KeyCode::Space)) {
+                if state.grounded {
+                    y_velocity += tweak!(1000.0)
+                }
+            }
 
             velocity = velocity.normalize();
             if (velocity == Vec3::ZERO || velocity.is_nan()) && y_velocity == 0. {
@@ -305,8 +345,6 @@ fn player_move(
             if y_velocity != 0. {
                 composed_velocity.y = y_velocity;
             }
-
-            println!("{:?}", velocity);
 
             if composed_velocity != Vec3::ZERO {
                 ext_impulse.force = composed_velocity;
@@ -392,7 +430,9 @@ impl Plugin for PlayerPlugin {
             .add_system(player_move)
             .add_system(player_look)
             .add_system(cursor_grab)
-            .add_system(player_grab)
+            .add_system(rotate_with_mouse)
+            .add_system(grabbing)
+            .add_system(player_grab.before(grabbing))
             .add_plugin(InspectorPlugin::<PlayerState>::new())
             .add_plugin(InspectorPlugin::<MovementSettings>::new())
             .add_plugin(InspectorPlugin::<InputState>::new());

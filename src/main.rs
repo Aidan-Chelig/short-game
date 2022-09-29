@@ -69,7 +69,7 @@ fn setup(
 
     })    // Spawn a cube to rotate.
         .insert(RigidBody::Dynamic)
-        .insert(Collider::capsule_x(0.6, 0.6/2.))
+        .insert(Collider::capsule_x(0.4, 0.4/2.))
         .insert(Velocity::default())
         .insert(ExternalForce::default())
         .insert(ColliderMassProperties::Density(5.0))
