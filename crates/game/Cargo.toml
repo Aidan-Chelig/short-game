@@ -1,0 +1,16 @@
+[package]
+name = "short-game"
+version = "0.1.0"
+authors = ["aidan chelig <aidan.chelig@gmail.com>"]
+edition = "2018"
+
+[target.wasm32-unknown-unknown]
+runner = "wasm-server-runner"
+
+# See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
+
+[dependencies]
+bevy = { version = "0.9", features=["jpeg"]}
+bevy_rapier3d = {version = "0.20.0", features = ["simd-stable"]}
+inline_tweak = {version = "1.0", features=["release_tweak"]}
+bevy-inspector-egui = "0.16"
