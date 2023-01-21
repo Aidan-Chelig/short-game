@@ -4,8 +4,6 @@ use bevy_rapier3d::rapier::prelude::MassProperties;
 use inline_tweak::*;
 use player::*;
 use bevy_rapier3d::prelude::*;
-use bevy_inspector_egui::{InspectorPlugin, Inspectable};
-use bevy_inspector_egui::WorldInspectorPlugin;
 
 use std::f32::consts::PI;
 
@@ -23,7 +21,7 @@ fn main() {
         .add_plugin(PlayerPlugin)
         .add_plugin(RapierPhysicsPlugin::<NoUserData>::default())
         //.add_plugin(RapierDebugRenderPlugin::default())
-        .add_plugin(WorldInspectorPlugin::new())
+        //.add_plugin(WorldInspectorPlugin::new())
         .add_startup_system(setup)
         .insert_resource(MovementSettings::default())
         .run();

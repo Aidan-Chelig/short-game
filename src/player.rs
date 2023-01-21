@@ -1,6 +1,5 @@
 use bevy::utils::HashMap;
-use bevy_inspector_egui::Inspectable;
-use bevy_inspector_egui::InspectorPlugin;
+use bevy::window::CursorGrabMode;
 use inline_tweak::*;
 
 use bevy::ecs::system::Command;
@@ -12,14 +11,14 @@ use bevy::time::FixedTimestep;
 use bevy_rapier3d::prelude::*;
 
 /// Keeps track of mouse motion events, pitch, and yaw
-#[derive(Default, Inspectable)]
+#[derive(Default, Resource)]
 struct InputState {
     pitch: f32,
     yaw: f32,
 }
 
 /// Mouse sensitivity and movement speed
-#[derive(Inspectable)]
+#[derive(Resource)]
 pub struct MovementSettings {
     pub sensitivity: f32,
     pub max_speed: f32,
@@ -28,7 +27,7 @@ pub struct MovementSettings {
     pub fov: f32,
 }
 
-#[derive(Default, Inspectable)]
+#[derive(Default, Resource)]
 struct PlayerState {
     grounded: bool,
     grabbing: Option<Entity>,
@@ -60,7 +59,11 @@ pub struct Grabbable {
 
 /// Grabs/ungrabs mouse cursor
 fn toggle_grab_cursor(window: &mut Window) {
-    window.set_cursor_lock_mode(!window.cursor_locked());
+    if window.cursor_grab_mode() == CursorGrabMode::Locked {
+        window.set_cursor_grab_mode(CursorGrabMode::None);
+    } else {
+        window.set_cursor_grab_mode(CursorGrabMode::Locked);
+    }
     window.set_cursor_visibility(!window.cursor_visible());
 }
 
@@ -139,7 +142,6 @@ fn detect_ground(
         let ray_dir = Vec3::new(0.0, -1., 0.0);
         let max_toi = 1.5;
         let solid = false;
-        let groups = InteractionGroups::all();
         let filter = QueryFilter::default().exclude_rigid_body(entity);
         let mut grounded = false;
         if let Some((entity, toi)) =
@@ -306,7 +308,7 @@ fn player_move(
             let right = Vec3::new(local_z.z, 0., -local_z.x);
 
             for key in keys.get_pressed() {
-                if window.cursor_locked() {
+                if window.cursor_grab_mode() == CursorGrabMode::Locked {
                     match key {
                         KeyCode::W => velocity += forward,
                         KeyCode::S => velocity -= forward,
@@ -367,7 +369,7 @@ fn player_look(
     let window = windows.get_primary().unwrap();
 
     for ev in mouse_move.iter() {
-        if window.cursor_locked() {
+        if window.cursor_grab_mode() == CursorGrabMode::Locked {
             // Using smallest of height or width ensures equal vertical and horizontal sensitivity
             let window_scale = window.height().min(window.width());
             state.pitch -= (settings.sensitivity * ev.delta.y * window_scale).to_radians();
@@ -407,11 +409,11 @@ fn cursor_grab(
     //window.set_cursor_lock_mode(!window.cursor_locked());
     //window.set_cursor_visibility(!window.cursor_visible());
 
-    if window.cursor_locked() && !window.cursor_visible() && keys.just_pressed(KeyCode::Escape) {
-        window.set_cursor_lock_mode(false);
+    if window.cursor_grab_mode() == CursorGrabMode::Locked && !window.cursor_visible() && keys.just_pressed(KeyCode::Escape) {
+        window.set_cursor_grab_mode(CursorGrabMode::None);
         window.set_cursor_visibility(true);
     } else if mouse_click.any_just_pressed([MouseButton::Left, MouseButton::Right]) {
-        window.set_cursor_lock_mode(true);
+        window.set_cursor_grab_mode(CursorGrabMode::Locked);
         window.set_cursor_visibility(false);
     }
 }
@@ -420,7 +422,7 @@ fn cursor_grab(
 pub struct PlayerPlugin;
 impl Plugin for PlayerPlugin {
     fn build(&self, app: &mut App) {
-        app.init_resource::<InputState>()
+        let _ = app.init_resource::<InputState>()
             .init_resource::<MovementSettings>()
             .init_resource::<PlayerState>()
             .add_startup_system(setup_player)
@@ -432,9 +434,6 @@ impl Plugin for PlayerPlugin {
             .add_system(cursor_grab)
             .add_system(rotate_with_mouse)
             .add_system(grabbing)
-            .add_system(player_grab.before(grabbing))
-            .add_plugin(InspectorPlugin::<PlayerState>::new())
-            .add_plugin(InspectorPlugin::<MovementSettings>::new())
-            .add_plugin(InspectorPlugin::<InputState>::new());
+            .add_system(player_grab.before(grabbing));
     }
 }
