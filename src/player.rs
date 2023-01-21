@@ -1,24 +1,20 @@
+use bevy::utils::HashMap;
+use bevy::window::CursorGrabMode;
+use inline_tweak::*;
+
+use bevy::ecs::system::Command;
 use bevy::input::mouse::MouseButton;
+use bevy::input::mouse::MouseButtonInput;
 use bevy::input::mouse::MouseMotion;
 use bevy::prelude::*;
 use bevy::time::FixedTimestep;
-use bevy::utils::HashMap;
-use bevy::window::CursorGrabMode;
 use bevy_rapier3d::prelude::*;
-use bevy_rapier3d::rapier::prelude::InteractionGroups;
-use inline_tweak::*;
 
 /// Keeps track of mouse motion events, pitch, and yaw
 #[derive(Default, Resource)]
 struct InputState {
     pitch: f32,
     yaw: f32,
-}
-
-#[derive(Default, Resource)]
-struct GrabState {
-    pub anchor: f32,
-    pub yaw_delta: f32,
 }
 
 /// Mouse sensitivity and movement speed
@@ -63,10 +59,10 @@ pub struct Grabbable {
 
 /// Grabs/ungrabs mouse cursor
 fn toggle_grab_cursor(window: &mut Window) {
-    if window.cursor_grab_mode() == CursorGrabMode::Confined {
+    if window.cursor_grab_mode() == CursorGrabMode::Locked {
         window.set_cursor_grab_mode(CursorGrabMode::None);
     } else {
-        window.set_cursor_grab_mode(CursorGrabMode::Confined);
+        window.set_cursor_grab_mode(CursorGrabMode::Locked);
     }
     window.set_cursor_visibility(!window.cursor_visible());
 }
@@ -85,7 +81,7 @@ fn setup_player(
     mut materials: ResMut<Assets<StandardMaterial>>,
 ) {
     let camera = commands
-        .spawn(Camera3dBundle {
+        .spawn_bundle(Camera3dBundle {
             transform: Transform::from_xyz(0., 0.95, 0.).looking_at(Vec3::ZERO, Vec3::Y),
             projection: PerspectiveProjection {
                 fov: (settings.fov / 360.0) * (std::f32::consts::PI * 2.0),
@@ -98,7 +94,7 @@ fn setup_player(
         .id();
 
     commands
-        .spawn(TransformBundle::from(Transform::from_xyz(-2.0, 10.0, 5.0)))
+        .spawn_bundle(TransformBundle::from(Transform::from_xyz(-2.0, 10.0, 5.0)))
         .insert(RigidBody::Dynamic)
         .insert(LockedAxes::ROTATION_LOCKED)
         .insert(Collider::capsule_y(1., 0.5))
@@ -109,7 +105,7 @@ fn setup_player(
         })
         .insert(ExternalImpulse::default())
         .insert(ExternalForce::default())
-        .insert(ColliderMassProperties::Mass(2.0))
+        .insert(ColliderMassProperties::Density(2.0))
         .insert(FPSBody)
         .add_child(camera);
 
@@ -119,7 +115,7 @@ fn setup_player(
     let texture_handle = assets.load("tex.jpg");
 
     commands
-        .spawn(PbrBundle {
+        .spawn_bundle(PbrBundle {
             mesh: meshes.add(Mesh::from(shape::Plane { size: ground_size })),
             material: materials.add(StandardMaterial {
                 base_color_texture: Some(texture_handle.clone()),
@@ -146,7 +142,6 @@ fn detect_ground(
         let ray_dir = Vec3::new(0.0, -1., 0.0);
         let max_toi = 1.5;
         let solid = false;
-        let groups = InteractionGroups::all();
         let filter = QueryFilter::default().exclude_rigid_body(entity);
         let mut grounded = false;
         if let Some((entity, toi)) =
@@ -162,35 +157,17 @@ fn detect_ground(
 
 fn rotate_with_mouse(
     state: Res<PlayerState>,
-    keys: Res<Input<KeyCode>>,
-    mut grabstate: ResMut<GrabState>,
-    input_state: Res<InputState>,
     mut mouse_move: EventReader<MouseMotion>,
-    mut grabbables: Query<&mut Transform, (With<Grabbable>, Without<FPSBody>)>,
-    mut body: Query<&mut Transform, (With<FPSBody>, Without<FPSBody>)>,
+    mut grabbables: Query<&mut Transform, With<Grabbable>>,
 ) {
     if let Some(ent) = state.grabbing {
         if let Ok(mut trans) = grabbables.get_mut(ent) {
             for ev in mouse_move.iter() {
-                let mut gs = grabstate.as_mut();
-
-                let delta = input_state.yaw - gs.anchor;
-                gs.anchor = input_state.yaw;
-
-                gs.yaw_delta = delta;
-                if keys.pressed(KeyCode::R) {
-                    trans.rotation =
-                        Quat::from_euler(EulerRot::XYZ, 0., ev.delta.x / 100., -ev.delta.y / 100.);
-                }
-
-                if !keys.pressed(KeyCode::R) {
-                    trans.rotation =
-                        Quat::from_euler(EulerRot::XYZ, 0., delta, 0.) * trans.rotation;
-                    return;
-                }
-                //gs.yaw_delta = input_state.yaw - gs.yaw_delta.unwrap();
-                //let eu = trans.rotation.to_euler(EulerRot::XYZ);
+                let eu = trans.rotation.to_euler(EulerRot::XYZ);
                 //TODO: factor in player rotation
+                trans.rotation =
+                    Quat::from_euler(EulerRot::XYZ, 0., ev.delta.x / 100., -ev.delta.y / 100.)
+                        * trans.rotation;
             }
         }
     }
@@ -222,9 +199,9 @@ fn grabbing(
                 let direction = (grablocation - trans.translation).normalize();
                 let distance = grablocation.distance(trans.translation);
 
-                if direction != Vec3::ZERO && distance > 0.005 {
+                if (direction != Vec3::ZERO && distance > 0.005) {
                     //extforce.force = direction * (distance.sqrt().powf(10.) + distance * 1000.);
-                    let press = (((distance + 0.03) * 3.).log10() + 1.) * distance.sqrt();
+                    let press = ((((distance + 0.03) * 3.).log10() + 1.) * distance.sqrt());
                     extforce.force = direction * ((press.abs() + press) / 2.) * 1500.;
                     //println!("{:?}", extforce.force);
                 } else {
@@ -240,7 +217,6 @@ fn grabbing(
 fn player_grab(
     keys: Res<Input<KeyCode>>,
     mut state: ResMut<PlayerState>,
-    mut grabstate: ResMut<GrabState>,
     mut commands: Commands,
     camera: Query<&GlobalTransform, With<FPSCam>>,
     mut grabbables: Query<
@@ -288,10 +264,9 @@ fn player_grab(
                 if let Ok((ent, transform, velocity, mut force, mut grabb, mut grav)) =
                     grabbables.get_mut(entity)
                 {
-                    if grabb.grabbed {
+                    if (grabb.grabbed) {
                         return;
                     }
-                    grabstate.as_mut().anchor = transform.rotation.y;
                     state.grabbing = Some(ent);
                     grabb.grabbed = true;
                     grav.0 = 0.;
@@ -333,7 +308,7 @@ fn player_move(
             let right = Vec3::new(local_z.z, 0., -local_z.x);
 
             for key in keys.get_pressed() {
-                if window.cursor_grab_mode() == CursorGrabMode::Confined {
+                if window.cursor_grab_mode() == CursorGrabMode::Locked {
                     match key {
                         KeyCode::W => velocity += forward,
                         KeyCode::S => velocity -= forward,
@@ -343,7 +318,7 @@ fn player_move(
                     }
                 }
             }
-            if keys.just_pressed(KeyCode::Space) {
+            if (keys.just_pressed(KeyCode::Space)) {
                 if state.grounded {
                     y_velocity += tweak!(1000.0)
                 }
@@ -394,10 +369,12 @@ fn player_look(
     let window = windows.get_primary().unwrap();
 
     for ev in mouse_move.iter() {
-        // Using smallest of height or width ensures equal vertical and horizontal sensitivity
-        let window_scale = window.height().min(window.width());
-        state.pitch -= (settings.sensitivity * ev.delta.y * window_scale).to_radians();
-        state.yaw -= (settings.sensitivity * ev.delta.x * window_scale).to_radians();
+        if window.cursor_grab_mode() == CursorGrabMode::Locked {
+            // Using smallest of height or width ensures equal vertical and horizontal sensitivity
+            let window_scale = window.height().min(window.width());
+            state.pitch -= (settings.sensitivity * ev.delta.y * window_scale).to_radians();
+            state.yaw -= (settings.sensitivity * ev.delta.x * window_scale).to_radians();
+        }
 
         state.pitch = state.pitch.clamp(-1.54, 1.54);
 
@@ -408,12 +385,12 @@ fn player_look(
         let new_body_transform = Quat::from_axis_angle(Vec3::Y, state.yaw);
 
         for mut transform in set.p0().iter_mut() {
-            if transform.rotation != new_transform {
+            if (transform.rotation != new_transform) {
                 transform.rotation = new_transform;
             }
         }
         for mut transform in set.p1().iter_mut() {
-            if transform.rotation != new_body_transform {
+            if (transform.rotation != new_body_transform) {
                 transform.rotation = new_body_transform;
             }
         }
@@ -432,10 +409,7 @@ fn cursor_grab(
     //window.set_cursor_lock_mode(!window.cursor_locked());
     //window.set_cursor_visibility(!window.cursor_visible());
 
-    if window.cursor_grab_mode() == CursorGrabMode::Locked
-        && !window.cursor_visible()
-        && keys.just_pressed(KeyCode::Escape)
-    {
+    if window.cursor_grab_mode() == CursorGrabMode::Locked && !window.cursor_visible() && keys.just_pressed(KeyCode::Escape) {
         window.set_cursor_grab_mode(CursorGrabMode::None);
         window.set_cursor_visibility(true);
     } else if mouse_click.any_just_pressed([MouseButton::Left, MouseButton::Right]) {
@@ -448,9 +422,7 @@ fn cursor_grab(
 pub struct PlayerPlugin;
 impl Plugin for PlayerPlugin {
     fn build(&self, app: &mut App) {
-        let _ = app
-            .init_resource::<InputState>()
-            .init_resource::<GrabState>()
+        let _ = app.init_resource::<InputState>()
             .init_resource::<MovementSettings>()
             .init_resource::<PlayerState>()
             .add_startup_system(setup_player)
@@ -460,7 +432,7 @@ impl Plugin for PlayerPlugin {
             .add_system(player_move)
             .add_system(player_look)
             .add_system(cursor_grab)
-            .add_system(rotate_with_mouse.after(player_look))
+            .add_system(rotate_with_mouse)
             .add_system(grabbing)
             .add_system(player_grab.before(grabbing));
     }
