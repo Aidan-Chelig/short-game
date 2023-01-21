@@ -1,8 +1,9 @@
 mod player;
 use bevy::prelude::*;
-use bevy_rapier3d::prelude::*;
-
+use bevy_rapier3d::rapier::prelude::MassProperties;
+use inline_tweak::*;
 use player::*;
+use bevy_rapier3d::prelude::*;
 
 use std::f32::consts::PI;
 
@@ -20,7 +21,7 @@ fn main() {
         .add_plugin(PlayerPlugin)
         .add_plugin(RapierPhysicsPlugin::<NoUserData>::default())
         //.add_plugin(RapierDebugRenderPlugin::default())
-        // .add_plugin(WorldInspectorPlugin::new())
+        //.add_plugin(WorldInspectorPlugin::new())
         .add_startup_system(setup)
         .insert_resource(MovementSettings::default())
         .run();
@@ -28,32 +29,45 @@ fn main() {
 
 fn setup(
     mut commands: Commands,
-    mut _meshes: ResMut<Assets<Mesh>>,
+    mut meshes: ResMut<Assets<Mesh>>,
     mut materials: ResMut<Assets<StandardMaterial>>,
     asset_server: Res<AssetServer>,
 ) {
-    let _material_handle = materials.add(StandardMaterial {
+
+    let material_handle = materials.add(StandardMaterial {
         base_color: Color::rgb(0.8, 0.7, 0.6),
-        ..Default::default()
+        ..default()
     });
 
-    let cube_handle = asset_server.load("floor.glb#Scene0");
+    let cube_handle = asset_server.load("food_apple_01_4k.glb#Scene0");
     let croissant_handle = asset_server.load("croissant.glb#Scene0");
 
-    commands.spawn(SceneBundle {
+    commands.spawn_bundle(SceneBundle {
         scene: cube_handle,
-        transform: Transform::from_xyz(0., 10., 0.).with_scale(Vec3::ONE),
+        transform: Transform::from_xyz(0.,10., 0. ).with_scale(Vec3::ONE),
         ..Default::default()
-    }); // Spawn a cube to rotate.
 
-    commands
-        .spawn(SceneBundle {
-            scene: croissant_handle,
-            transform: Transform::from_xyz(0., 10., 0.).with_scale(Vec3::ONE),
-            ..Default::default()
-        }) // Spawn a cube to rotate.
+    })    // Spawn a cube to rotate.
         .insert(RigidBody::Dynamic)
-        .insert(Collider::capsule_x(0.4, 0.4 / 2.))
+        .insert(Collider::ball(0.5))
+        .insert(Velocity::default())
+        .insert(ExternalForce::default())
+        .insert(GravityScale::default())
+        .insert(ColliderMassProperties::Density(5.0))
+        .insert(Grabbable::default())
+        .insert(Damping {
+            linear_damping: 1.,
+            ..Default::default()
+        });
+
+    commands.spawn_bundle(SceneBundle {
+        scene: croissant_handle,
+        transform: Transform::from_xyz(0.,10., 0. ).with_scale(Vec3::ONE),
+        ..Default::default()
+
+    })    // Spawn a cube to rotate.
+        .insert(RigidBody::Dynamic)
+        .insert(Collider::capsule_x(0.4, 0.4/2.))
         .insert(Velocity::default())
         .insert(ExternalForce::default())
         .insert(ColliderMassProperties::Density(5.0))
@@ -68,7 +82,7 @@ fn setup(
     // Add a light source for better 3d visibility.
     //
     const HALF_SIZE: f32 = 10.0;
-    commands.spawn(DirectionalLightBundle {
+    commands.spawn_bundle(DirectionalLightBundle {
         directional_light: DirectionalLight {
             // Configure the projection to better fit the scene
             shadow_projection: OrthographicProjection {
@@ -80,9 +94,8 @@ fn setup(
                 far: 10.0 * HALF_SIZE,
                 ..default()
             },
-            //shadows_enabled: true,
-            illuminance: 10000.,
-            ..Default::default()
+            shadows_enabled: true,
+            ..default()
         },
         transform: Transform {
             translation: Vec3::new(0.0, 2.0, 0.0),
