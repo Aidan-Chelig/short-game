@@ -64,7 +64,7 @@ fn toggle_grab_cursor(window: &mut Window) {
     } else {
         window.set_cursor_grab_mode(CursorGrabMode::Locked);
     }
-    window.set_cursor_visibility(!window.cursor_visible());
+    // window.set_cursor_visibility(!window.cursor_visible());
 }
 
 /// Grabs the cursor when game first starts
@@ -401,7 +401,7 @@ fn player_look(
 
 fn cursor_grab(
     keys: Res<Input<KeyCode>>,
-    mut mouse_click: Res<Input<MouseButton>>,
+    mouse_click: Res<Input<MouseButton>>,
     mut windows: ResMut<Windows>,
 ) {
     let window = windows.get_primary_mut().unwrap();
@@ -409,12 +409,12 @@ fn cursor_grab(
     //window.set_cursor_lock_mode(!window.cursor_locked());
     //window.set_cursor_visibility(!window.cursor_visible());
 
-    if window.cursor_grab_mode() == CursorGrabMode::Locked && !window.cursor_visible() && keys.just_pressed(KeyCode::Escape) {
+    if window.cursor_grab_mode() == CursorGrabMode::Locked && keys.just_pressed(KeyCode::Escape) {
         window.set_cursor_grab_mode(CursorGrabMode::None);
-        window.set_cursor_visibility(true);
+        // window.set_cursor_visibility(true);
     } else if mouse_click.any_just_pressed([MouseButton::Left, MouseButton::Right]) {
         window.set_cursor_grab_mode(CursorGrabMode::Locked);
-        window.set_cursor_visibility(false);
+        // window.set_cursor_visibility(false);
     }
 }
 
@@ -422,7 +422,8 @@ fn cursor_grab(
 pub struct PlayerPlugin;
 impl Plugin for PlayerPlugin {
     fn build(&self, app: &mut App) {
-        let _ = app.init_resource::<InputState>()
+        let _ = app
+            .init_resource::<InputState>()
             .init_resource::<MovementSettings>()
             .init_resource::<PlayerState>()
             .add_startup_system(setup_player)

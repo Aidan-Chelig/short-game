@@ -1,9 +1,9 @@
 mod player;
 use bevy::prelude::*;
+use bevy_rapier3d::prelude::*;
 use bevy_rapier3d::rapier::prelude::MassProperties;
 use inline_tweak::*;
 use player::*;
-use bevy_rapier3d::prelude::*;
 
 use std::f32::consts::PI;
 
@@ -33,7 +33,6 @@ fn setup(
     mut materials: ResMut<Assets<StandardMaterial>>,
     asset_server: Res<AssetServer>,
 ) {
-
     let material_handle = materials.add(StandardMaterial {
         base_color: Color::rgb(0.8, 0.7, 0.6),
         ..default()
@@ -42,12 +41,12 @@ fn setup(
     let cube_handle = asset_server.load("food_apple_01_4k.glb#Scene0");
     let croissant_handle = asset_server.load("croissant.glb#Scene0");
 
-    commands.spawn_bundle(SceneBundle {
-        scene: cube_handle,
-        transform: Transform::from_xyz(0.,10., 0. ).with_scale(Vec3::ONE),
-        ..Default::default()
-
-    })    // Spawn a cube to rotate.
+    commands
+        .spawn_bundle(SceneBundle {
+            scene: cube_handle,
+            transform: Transform::from_xyz(0., 10., 0.).with_scale(Vec3::ONE),
+            ..Default::default()
+        }) // Spawn a cube to rotate.
         .insert(RigidBody::Dynamic)
         .insert(Collider::ball(0.5))
         .insert(Velocity::default())
@@ -60,14 +59,14 @@ fn setup(
             ..Default::default()
         });
 
-    commands.spawn_bundle(SceneBundle {
-        scene: croissant_handle,
-        transform: Transform::from_xyz(0.,10., 0. ).with_scale(Vec3::ONE),
-        ..Default::default()
-
-    })    // Spawn a cube to rotate.
+    commands
+        .spawn_bundle(SceneBundle {
+            scene: croissant_handle,
+            transform: Transform::from_xyz(0., 10., 0.).with_scale(Vec3::ONE),
+            ..Default::default()
+        }) // Spawn a cube to rotate.
         .insert(RigidBody::Dynamic)
-        .insert(Collider::capsule_x(0.4, 0.4/2.))
+        .insert(Collider::capsule_x(0.4, 0.4 / 2.))
         .insert(Velocity::default())
         .insert(ExternalForce::default())
         .insert(ColliderMassProperties::Density(5.0))
