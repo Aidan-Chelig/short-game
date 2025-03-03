@@ -1,0 +1,25 @@
+[package]
+name = "editor"
+version = "0.1.0"
+authors = ["aidan chelig <aidan.chelig@gmail.com>"]
+edition = "2018"
+
+[target.wasm32-unknown-unknown]
+runner = "wasm-server-runner"
+
+# See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
+
+[dependencies]
+bevy = { version = "0.9", features=["jpeg"]}
+bevy_rapier3d = {version = "0.20.0", features = ["simd-stable"]}
+inline_tweak = {version = "1.0", features=["release_tweak"]}
+bevy-inspector-egui = "0.16"
+egui_dock = "0.3.1"
+egui-gizmo = "0.9.0"
+bevy_asset = "0.9.1"
+bevy_mod_picking = { git = "https://github.com/aevyrie/bevy_mod_picking", rev = "554649a951689dce66d0d759839b326874e8826f", default-features = false, features = ["backend_raycast", "backend_egui", "backend_sprite"] }
+bevy_egui = "0.19.0"
+bevy_reflect = "0.9.1"
+bevy_render = "0.9.1"
+egui = "0.20.1"
+bevy_framepace = "0.11.0"
